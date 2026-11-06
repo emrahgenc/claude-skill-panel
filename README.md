@@ -57,6 +57,10 @@ The panel reads the session's own command list and keeps your groups (and the ou
 the last click, for troubleshooting) in the mod's local store. It sends nothing over the
 network.
 
+The one program it runs is macOS `pbcopy`, and only when you click a skill in the desktop
+app: it hands `pbcopy` the text `/<skill name> ` to put on your clipboard. In a terminal
+session it writes that text into the prompt instead and runs nothing.
+
 ## Development
 
 ```
