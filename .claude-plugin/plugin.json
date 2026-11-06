@@ -1,0 +1,12 @@
+{
+  "name": "skill-panel",
+  "version": "1.0.0",
+  "description": "A panel beside the chat that groups your Claude Code skills, shows what each one does in one line, and copies one with a click (Skill'ler button or /sk).",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "emrahgenc"
+  },
+  "homepage": "https://github.com/emrahgenc/claude-skill-panel",
+  "repository": "https://github.com/emrahgenc/claude-skill-panel",
+  "license": "MIT"
+}

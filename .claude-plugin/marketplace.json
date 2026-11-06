@@ -1,0 +1,6 @@
+{
+  "name": "claude-skill-panel",
+  "owner": { "name": "emrahgenc" },
+  "description": "Skill Panel: group your Claude Code skills and see what each one does, in a panel beside the chat.",
+  "plugins": [{ "name": "skill-panel", "source": "./" }]
+}
