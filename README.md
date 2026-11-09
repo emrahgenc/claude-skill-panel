@@ -10,20 +10,36 @@ choose, call, organize) and gives each one a screen.
 The interface speaks English and Turkish: it follows your system language, and you can switch it
 under ⚙.
 
+<p align="center">
+  <img src="docs/screenshots/find-search.png" alt="The Skills panel beside the chat: a search for &quot;review&quot;, the best match on top with Run, Put in box and Details, the other matches below">
+</p>
+
 ## The journey, screen by screen
+
+The screenshots are from the Claude desktop app, dark theme, English interface. The
+descriptions and arguments of the author's own skills are covered with grey bars.
 
 1. **Notice: the band above the message box.** A **Skills** button opens and closes the panel
    (`/sk` and Esc work too). Next to it, the skills you use most in this repository, one click to
    put in the message box, and on the right the one you used last and when.
+
+   ![The band above the message box: the Skills button, the two most used skills, and the last one used an hour ago](docs/screenshots/band.png)
+
 2. **Find.** The search box has the keyboard as soon as the panel opens and matches names and
    descriptions. The **best match** stands out with **▶ Run**, **Put in box** and **Details**;
    Enter puts it in the message box. Other matches follow, the match marked in each name. Chips narrow the list by
    source (this repo, personal, plugin, project, Claude Code). Without a query you see your most
    used skills and your groups, folded.
+
+   ![The panel with no query: source chips, the most used skill with its actions, the often used ones, and the groups folded](docs/screenshots/find-most-used.png)
+
 3. **Choose: details.** The full description; how to call it, with the arguments the skill's own
    SKILL.md asks for; a warning when Claude never starts it on its own (manual-only); how often
    you used it, here and overall, with the last eight weeks; skills that share its name; and
    where its file is.
+
+   ![A skill's details: its description (covered), how to call it with its argument, the manual-only warning, and its use over the last eight weeks](docs/screenshots/details.png)
+
 4. **Choose: compare.** Two skills with the same name under different prefixes (say
    `design:design-critique` and `design-skills:design-critique`) side by side: what each does,
    its arguments, whether Claude starts it itself, your use. **Use this** on either, and hide the
@@ -32,6 +48,9 @@ under ⚙.
    required one is empty; your last arguments are one click away; the exact command is
    previewed. **Run now** starts it as if you typed it; **Put it in the box, I will send it**
    leaves it in the message box for you to edit and send. A click on a name never runs anything.
+
+   ![The run form: the argument field, the skill's hint and the last arguments (covered), the command to send, and Run now or Put it in the box](docs/screenshots/run-form.png)
+
 6. **Putting a skill in the message box.** **Put in box** writes the command into the message
    box where your cursor stands, keeping what you had typed on either side and a space between
    them; with no cursor in the box, at the end. This works the same in the desktop app and in a
@@ -41,6 +60,9 @@ under ⚙.
 7. **Organize: groups.** Create groups, order them with ▲▼, rename, delete, add the ungrouped
    skills, and bring hidden skills back. Each group becomes a command in the `/` menu:
    `/sk-review` opens the panel on the "review" group.
+
+   ![The groups screen: groups in order with their /sk- commands, and the ungrouped skills to add](docs/screenshots/groups.png)
+
 8. **First open.** How many skills you have and from where, and groups suggested by prefix
    (your personal skills, each plugin, your project's skills), ticked to choose. One press sets
    them up; or arrange them yourself.
@@ -118,7 +140,7 @@ son kullandığını gösterir. Panel açılınca arama hazırdır; en iyi eşle
 skill'ler yan yana karşılaştırılır, kullanmadığın gizlenir. Çalıştırma formu argümanı skill'in
 kendi ipucuyla ister, komutu önizler ve doğrudan başlatır. Gruplar ayrı bir ekranda yönetilir,
 her grup `/sk-<grup>` komutu olur; ilk açılışta grup önerisi gelir. Arayüz Türkçe ve İngilizce.
-Kurulum için yukarıdaki **Install** bölümüne bak.
+Ekranların görüntüleri yukarıdaki yolculuk bölümünde; kurulum için **Install** bölümüne bak.
 
 ## License
 

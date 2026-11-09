@@ -744,7 +744,9 @@ export const register: Register = on => {
             autoFocus
             label={hint ? firstArg(hint) : t.args}
             placeholder={hint ? firstArg(hint) : t.argsPlaceholder}
-            submitLabel={v.runMode === 'run' ? t.run : t.copy}
+            // The desktop draws a field's submit label as a button of its own,
+            // beside the form's own Run below; Enter submits there without it.
+            {...(isGraphical ? {} : { submitLabel: v.runMode === 'run' ? t.run : t.copy })}
             value={v.runArgs}
             onInput={value => void setView($, { runArgs: value })}
             onSubmit={(value, input) => void submit(value, input.surface)}
@@ -814,7 +816,9 @@ export const register: Register = on => {
             <Input
               key="new-group"
               placeholder={t.newGroupPlaceholder}
-              submitLabel={t.create}
+              // As in the run form: on the desktop the Create button beside it
+              // is the one button; Enter still submits the field.
+              {...(isGraphical ? {} : { submitLabel: t.create })}
               value={v.newName}
               onInput={value => void setView($, { newName: value })}
               onSubmit={value => void addGroup($, value)}
@@ -834,7 +838,9 @@ export const register: Register = on => {
                 {...(isOpenGroup ? { borderColor: 'suggestion' } : {})}
                 paddingX={1}
               >
-                <Box flexDirection="row" justifyContent="space-between" gap={1}>
+                {/* The group's /command moves under its name when the pane is too
+                    narrow for both, rather than being cut at the edge. */}
+                <Box flexDirection="row" justifyContent="space-between" alignItems="center" gap={1} flexWrap="wrap">
                   <Box flexDirection="row" gap={1}>
                     <Button key={`up:${name}`} plain dimColor={i === 0} label="▲" onPress={() => void moveGroup($, name, -1)} />
                     <Button
@@ -901,7 +907,17 @@ export const register: Register = on => {
 
           {eyebrow(`${t.ungrouped} · ${ungrouped.length}`)}
           {preview.map(s => (
-            <Box key={`ug:${s.name}`} flexDirection="row" justifyContent="space-between" gap={1} paddingX={1}>
+            // The group picker moves under a long name instead of running past
+            // the pane's edge.
+            <Box
+              key={`ug:${s.name}`}
+              flexDirection="row"
+              justifyContent="space-between"
+              alignItems="center"
+              gap={1}
+              flexWrap="wrap"
+              paddingX={1}
+            >
               <Text mono>/{s.name}</Text>
               <Select
                 key={`assign:${s.name}`}
