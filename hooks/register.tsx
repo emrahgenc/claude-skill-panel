@@ -104,7 +104,7 @@ async function loadStored($: EngineInterface): Promise<void> {
     lang: startLang(savedPrefs, isGroups(savedGroups), locale),
     hidden:
       isRecord(savedPrefs) && Array.isArray(savedPrefs.hidden)
-        ? savedPrefs.hidden.filter((h): h is string => typeof h === 'string')
+        ? savedPrefs.hidden.filter((entry): entry is string => typeof entry === 'string')
         : [],
   }))
 }
@@ -468,7 +468,7 @@ async function assign($: EngineInterface, skill: string, group: string): Promise
 async function setHidden($: EngineInterface, name: string, isHidden: boolean): Promise<void> {
   await savePrefs($, p => ({
     ...p,
-    hidden: isHidden ? [...p.hidden.filter(h => h !== name), name] : p.hidden.filter(h => h !== name),
+    hidden: isHidden ? [...p.hidden.filter(entry => entry !== name), name] : p.hidden.filter(entry => entry !== name),
   }))
 }
 

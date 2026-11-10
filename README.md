@@ -114,7 +114,13 @@ Nothing leaves your machine: the panel sends nothing over the network.
   - macOS `pbcopy`, only when a command could not go into the message box, with the command to
     put on your clipboard.
   - The skill you chose, only when you press **Run** in its run form, with the arguments you
-    typed.
+    typed (as if you typed `/name arguments` and pressed Enter). It runs no other command.
+- **Watches:** the panel's own close (`ui.close` for its pane), only to mark the Skills button
+  as closed; it lets the close go ahead unchanged and touches no other pane.
+
+`HOME` is read only as a folder path, to find SKILL.md files; it is no credential and goes
+nowhere. The command put in the message box, the suggestion or the clipboard stays on this
+machine.
 
 ## Development
 
