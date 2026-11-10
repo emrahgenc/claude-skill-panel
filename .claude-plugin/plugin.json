@@ -1,6 +1,6 @@
 {
   "name": "skill-panel",
-  "version": "2.3.5",
+  "version": "2.3.6",
   "description": "A panel beside the chat to find, understand, compare, run and group your Claude Code skills (Skills button or /sk).",
   "types": "./types/index.d.ts",
   "author": {

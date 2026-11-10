@@ -123,7 +123,7 @@ claude plugin validate .
 claude plugin test .
 ```
 
-`hooks/model.ts` holds the data, search and actions; `hooks/register.tsx` the hooks and the
+`hooks/model.ts` holds the data and search (no `$` there); `hooks/register.tsx` the state, actions, hooks and the
 screens; `hooks/strings.ts` every word in both languages. The tests (`tests/panel.test.tsx`)
 walk the journey: the band, the first open, find, details, compare and hide, the run form, the
 message-box paths, groups, both languages, earlier stored values and mobile.

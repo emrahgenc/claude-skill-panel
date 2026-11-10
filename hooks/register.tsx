@@ -1,54 +1,48 @@
-import type { Register, RenderChildren } from 'claude-code'
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, RenderSurface } from 'claude-code'
 
-import type { Groups, Scope, SkillRow, Status, Usage } from '../types'
+import type { Groups, Prefs, Scope, Screen, SkillMeta, SkillRow, Status, Usage, View } from '../types'
 import {
   COMMAND,
   EMPTY_GROUPS,
+  EMPTY_USAGE,
+  KEEP_TIMES,
   PANE,
+  RECENT_ARGS,
+  START_PREFS,
+  START_VIEW,
+  STORE,
   UNGROUPED,
-  addGroup,
   brief,
-  assign,
-  closePanel,
-  copyCommand,
-  deleteGroup,
+  cleanName,
+  commandsFor,
   firstArg,
   fullText,
-  go,
   groupOf,
   hintNote,
+  insertPiece,
+  isGroups,
   isLang,
+  isRecord,
   isRequiredHint,
-  loadSkills,
-  loadStored,
+  isSkillRows,
   matchParts,
-  moveGroup,
-  openPanel,
   overlapOf,
-  registerGroupCommands,
-  renameGroup,
-  runSkill,
-  saveGroups,
-  savePrefs,
-  say,
+  parseMeta,
+  readUsage,
   sameNamed,
   scopeCounts,
   search,
-  setHidden,
-  setOpen,
-  setPlace,
-  setView,
-  snapshot,
   sourceKey,
   sourceLabel,
-  strings,
+  startLang,
   suggestGroups,
   summary,
-  togglePanel,
   topUsed,
   weekly,
 } from './model'
 import { LANG_OPTIONS, STRINGS } from './strings'
+import type { Strings } from './strings'
 
 const CHIPS = 3
 const REST = 8
@@ -72,6 +66,413 @@ const SEARCH_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" ' +
   'stroke="#7FA2FF" stroke-width="1.8" stroke-linecap="round"><circle cx="7" cy="7" r="4.75"/>' +
   '<path d="M10.5 10.5 14 14"/></svg>'
+
+// ── State and actions: every use of $ lives in this file ───────────────
+
+// Change a tag when that value's fields change: it declines what an earlier
+// version stored, which outlives a reload.
+const skills = atom({ plugin: 'skill-panel', key: 'skills' } as const, [] as SkillRow[], { shape: 'skills-1' })
+const meta = atom({ plugin: 'skill-panel', key: 'meta' } as const, {} as Record<string, SkillMeta>, { shape: 'meta-2' })
+const groups = atom({ plugin: 'skill-panel', key: 'groups' } as const, EMPTY_GROUPS, { shape: 'groups-1' })
+const view = atom({ plugin: 'skill-panel', key: 'view' } as const, START_VIEW, { shape: 'view-4' })
+const usage = atom({ plugin: 'skill-panel', key: 'usage' } as const, EMPTY_USAGE, { shape: 'usage-2' })
+const prefs = atom({ plugin: 'skill-panel', key: 'prefs' } as const, START_PREFS, { shape: 'prefs-3' })
+const status = atom({ plugin: 'skill-panel', key: 'status' } as const, { text: '', tone: 'ok' } as Status, { shape: 'status-2' })
+const args = atom({ plugin: 'skill-panel', key: 'args' } as const, {} as Record<string, string[]>, { shape: 'args-1' })
+const place = atom({ plugin: 'skill-panel', key: 'place' } as const, '')
+const groupCommands = atom({ plugin: 'skill-panel', key: 'groupCommands' } as const, {} as Record<string, string>)
+const isOpen = atom({ plugin: 'skill-panel', key: 'isOpen' } as const, false)
+
+/** Loads everything the panel keeps across sessions. */
+async function loadStored($: EngineInterface): Promise<void> {
+  const [savedGroups, savedUsage, savedPrefs, savedArgs, savedSkills] = await Promise.all([
+    $.store.get(STORE.groups),
+    $.store.get(STORE.usage),
+    $.store.get(STORE.prefs),
+    $.store.get(STORE.args),
+    $.store.get(STORE.skills),
+  ])
+  if (isGroups(savedGroups)) await update($, groups, () => savedGroups)
+  await update($, usage, () => readUsage(savedUsage))
+  if (isRecord(savedArgs)) await update($, args, () => savedArgs as Record<string, string[]>)
+  // The last list read, shown at once; the panel reads a fresh one when it opens.
+  if (isSkillRows(savedSkills)) await update($, skills, () => savedSkills)
+  const locale =
+    (await $.env.get('LC_ALL')) || (await $.env.get('LC_MESSAGES')) || (await $.env.get('LANG')) || ''
+  await update($, prefs, () => ({
+    isSuggestionDismissed: isRecord(savedPrefs) && savedPrefs.isSuggestionDismissed === true,
+    lang: startLang(savedPrefs, isGroups(savedGroups), locale),
+    hidden:
+      isRecord(savedPrefs) && Array.isArray(savedPrefs.hidden)
+        ? savedPrefs.hidden.filter((h): h is string => typeof h === 'string')
+        : [],
+  }))
+}
+
+async function strings($: EngineInterface): Promise<Strings> {
+  return STRINGS[(await read($, prefs)).lang]
+}
+
+/** Everything a drawing reads, in one go (read while drawing, so it redraws on change). */
+async function snapshot($: EngineInterface) {
+  const [all, g, v, u, p, md, st, here, recentArgs, open, commands] = await Promise.all([
+    read($, skills),
+    read($, groups),
+    read($, view),
+    read($, usage),
+    read($, prefs),
+    read($, meta),
+    read($, status),
+    read($, place),
+    read($, args),
+    read($, isOpen),
+    read($, groupCommands),
+  ])
+  return { all, g, v, u, p, md, st, here, recentArgs, open, commands, t: STRINGS[p.lang] }
+}
+
+async function setPlace($: EngineInterface, here: string): Promise<void> {
+  await update($, place, () => here)
+}
+
+async function setOpen($: EngineInterface, value: boolean): Promise<void> {
+  await update($, isOpen, () => value)
+}
+
+// ── Actions ──────────────────────────────────────────────────────────────
+
+function setView($: EngineInterface, patch: Partial<View>): Promise<unknown> {
+  return update($, view, v => ({ ...v, ...patch }))
+}
+
+function say($: EngineInterface, s: Status): Promise<unknown> {
+  return update($, status, () => s)
+}
+
+/** Moves to a screen; the status of the last screen goes with it. */
+async function go($: EngineInterface, screen: Screen, patch: Partial<View> = {}): Promise<void> {
+  await setView($, { screen, showOptions: false, ...patch })
+}
+
+/** Applies a change to the groups, keeps it past the session and refreshes their commands. */
+async function saveGroups($: EngineInterface, change: (g: Groups) => Groups): Promise<void> {
+  let latest: Groups | undefined
+  await update($, groups, g => (latest = change(g)))
+  if (latest) await $.store.set(STORE.groups, latest)
+  await registerGroupCommands($).catch(() => undefined)
+}
+
+async function savePrefs($: EngineInterface, change: (p: Prefs) => Prefs): Promise<void> {
+  let latest: Prefs | undefined
+  await update($, prefs, p => (latest = change(p)))
+  if (latest) await $.store.set(STORE.prefs, latest).catch(() => undefined)
+}
+
+/**
+ * Puts each group in the `/` menu as its own command. A name registered again
+ * is replaced; a command of a group since renamed or deleted stays until the
+ * next session, and running it opens the whole panel.
+ */
+async function registerGroupCommands($: EngineInterface): Promise<void> {
+  const g = await read($, groups)
+  const t = await strings($)
+  const commands = commandsFor(g)
+  for (const [command, group] of Object.entries(commands)) {
+    const members = Object.entries(g.of)
+      .filter(([, gr]) => gr === group)
+      .map(([skill]) => `/${skill}`)
+    const list = members.length > 6 ? `${members.slice(0, 6).join(', ')} …` : members.join(', ')
+    await $.command.register({ name: command, description: t.groupCommand(group, list || '—') })
+  }
+  await update($, groupCommands, known => ({ ...known, ...commands }))
+}
+
+async function loadSkills($: EngineInterface): Promise<void> {
+  const listed = await $.command.list()
+  const known = await read($, groupCommands)
+  const rows: SkillRow[] = listed
+    .filter(c => c.plugin !== 'skill-panel' && !(c.name in known))
+    .map(c => ({
+      name: c.name,
+      description: c.description ?? '',
+      source: c.source,
+      ...(c.plugin ? { plugin: c.plugin } : {}),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'tr'))
+  await update($, skills, () => rows)
+  await $.store.set(STORE.skills, rows).catch(() => undefined)
+  await loadMeta($, rows).catch(() => undefined)
+}
+
+/**
+ * Reads the frontmatter of the skills whose SKILL.md sits in a skills folder
+ * on this machine: a skills-folder plugin's (`~/.claude/skills/<plugin>/skills/<skill>`),
+ * the person's own (`~/.claude/skills/<skill>`) and this repository's
+ * (`<repo>/.claude/skills/<skill>`). Others keep no meta.
+ */
+async function loadMeta($: EngineInterface, rows: SkillRow[]): Promise<void> {
+  const home = (await $.env.get('HOME')) ?? ''
+  const here = await read($, place)
+  const pluginFolders = new Map<string, boolean>()
+  const out: Record<string, SkillMeta> = {}
+  for (const s of rows) {
+    const candidates: string[] = []
+    const [prefix, base] = s.name.includes(':') ? s.name.split(':', 2) : ['', s.name]
+    if (s.source === 'plugin' && prefix && base && home) {
+      const folder = `${home}/.claude/skills/${prefix}`
+      if (!pluginFolders.has(prefix)) pluginFolders.set(prefix, await $.fs.exists(folder).catch(() => false))
+      if (pluginFolders.get(prefix)) candidates.push(`${folder}/skills/${base}/SKILL.md`)
+    }
+    if (s.source === 'user') {
+      if (here) candidates.push(`${here}/.claude/skills/${s.name}/SKILL.md`)
+      if (home) candidates.push(`${home}/.claude/skills/${s.name}/SKILL.md`)
+    }
+    for (const path of candidates) {
+      try {
+        const text = await $.fs.read(path)
+        if (typeof text === 'string') {
+          const folder = path.replace(/\/SKILL\.md$/, '')
+          out[s.name] = { ...parseMeta(text), path: home ? folder.replace(home, '~') : folder }
+        }
+        break
+      } catch {
+        // Not at this path: try the next.
+      }
+    }
+  }
+  await update($, meta, () => out)
+}
+
+/** The screen a fresh open starts on: the welcome until there are groups or the person said no. */
+async function firstScreen($: EngineInterface): Promise<Screen> {
+  const [g, p, all] = await Promise.all([read($, groups), read($, prefs), read($, skills)])
+  return g.names.length === 0 && !p.isSuggestionDismissed && all.length > 0 ? 'welcome' : 'find'
+}
+
+/** Reads the skill list afresh and opens the panel; resolves whether a surface draws it. */
+async function openPanel($: EngineInterface, patch: Partial<View> = {}): Promise<boolean> {
+  await loadSkills($)
+  const t = await strings($)
+  await go($, await firstScreen($), { query: '', expanded: {}, ...patch })
+  const { isPlaced } = await $.ui.open({ id: PANE, title: t.title, focus: true, closeOnEscape: true })
+  await update($, isOpen, () => true)
+  return isPlaced
+}
+
+/**
+ * The button's press: closes the panel when it is the one on screen, else
+ * opens it (or brings it to the front when it sits behind another tab).
+ */
+async function togglePanel($: EngineInterface): Promise<void> {
+  const pane = (await $.ui.panes()).find(p => p.id === PANE)
+  if (pane?.isShown) {
+    await closePanel($)
+    return
+  }
+  await openPanel($)
+}
+
+async function closePanel($: EngineInterface): Promise<void> {
+  await $.ui.close({ id: PANE })
+  await update($, isOpen, () => false)
+}
+
+/** Counts a use of `name`: overall, in this session's place, its time; keeps it past the session. */
+async function recordUse($: EngineInterface, name: string): Promise<void> {
+  const here = await read($, place)
+  const now = await $.clock.now()
+  let latest: Usage | undefined
+  await update($, usage, u => {
+    const counts = { ...u.counts, [name]: (u.counts[name] ?? 0) + 1 }
+    const byPlace = { ...u.byPlace }
+    if (here) byPlace[here] = { ...(byPlace[here] ?? {}), [name]: ((byPlace[here] ?? {})[name] ?? 0) + 1 }
+    const last = { ...u.last, [name]: now }
+    const times = { ...u.times, [name]: [...(u.times[name] ?? []), now].slice(-KEEP_TIMES) }
+    return (latest = { counts, byPlace, last, times })
+  })
+  if (latest) await $.store.set(STORE.usage, latest).catch(() => undefined)
+}
+
+/** Keeps the arguments a skill was given, newest first, a few per skill. */
+async function rememberArgs($: EngineInterface, name: string, given: string): Promise<void> {
+  const text = given.trim()
+  if (!text) return
+  let latest: Record<string, string[]> | undefined
+  await update($, args, a => {
+    const list = [text, ...(a[name] ?? []).filter(x => x !== text)].slice(0, RECENT_ARGS)
+    return (latest = { ...a, [name]: list })
+  })
+  if (latest) await $.store.set(STORE.args, latest).catch(() => undefined)
+}
+
+const why = (error: unknown) => (error instanceof Error ? error.message : String(error))
+
+/**
+ * Puts a command where the person can send it:
+ * - into the message box where the cursor stands, the draft kept on either side
+ *   (`$.prompt.fill` with `insert`; at the end when the box tracks no cursor).
+ *   The desktop app takes it through `ui_prompt_fill`, named back to the press
+ *   that asked; the terminal's prompt takes it directly;
+ * - in the desktop app, if the box refused it, as the box's dim suggestion
+ *   (`$.prompt.suggest`; Tab takes it), shown only while the box is empty and
+ *   no turn runs;
+ * - else the Mac's clipboard; where nothing works, the command to type.
+ * Each step's outcome is kept in the store (`lastUse`) for troubleshooting:
+ * lengths and offsets only, never the draft's words.
+ */
+async function copyCommand(
+  $: EngineInterface,
+  name: string,
+  given: string,
+  surface: RenderSurface,
+): Promise<void> {
+  const command = `/${name}${given.trim() ? ` ${given.trim()}` : ''}`
+  const trace: Record<string, unknown> = { name, surface }
+  // The box first, while the press is fresh; the bookkeeping after.
+  const tryFill = async (): Promise<boolean> => {
+    let box = { text: '', cursor: 0 }
+    try {
+      box = await $.prompt.read()
+      trace.read = { textLength: box.text.length, cursor: box.cursor }
+    } catch (error) {
+      trace.read = { error: why(error) }
+    }
+    try {
+      const filled = await $.prompt.fill({ text: insertPiece(box.text, box.cursor, command), mode: 'insert' })
+      trace.fill = {
+        isFilled: filled.isFilled,
+        refusal: filled.refusal ?? null,
+        textLength: filled.text.length,
+        cursor: filled.cursor,
+        holdsCommand: filled.text.includes(command),
+      }
+      return filled.isFilled
+    } catch (error) {
+      trace.fill = { error: why(error) }
+      return false
+    }
+  }
+  const isFilled = await tryFill()
+  await recordUse($, name)
+  await rememberArgs($, name, given)
+  const t = await strings($)
+  const done = async (s: Status) => {
+    await say($, s)
+    await $.store.set('lastUse', trace).catch(() => undefined)
+  }
+  if (isFilled) return done({ text: t.filled(command), tone: 'ok' })
+
+  let isBoxBusy = false
+  if (surface !== 'terminal') {
+    try {
+      const suggested = await $.prompt.suggest({ text: `${command} ` })
+      trace.suggest = { isShown: suggested.isShown }
+      if (suggested.isShown) return done({ text: t.inBox(command), tone: 'ok' })
+      isBoxBusy = true
+    } catch (error) {
+      trace.suggest = { error: why(error) }
+    }
+  }
+
+  try {
+    const copied = await $.process.run(['pbcopy'], { stdin: `${command} `, timeoutMs: 5000 })
+    trace.pbcopy = { exitCode: copied.exitCode, stderr: copied.stderr.slice(0, 200) }
+    if (copied.exitCode === 0) {
+      return done({ text: isBoxBusy ? t.boxBusy(command) : t.pbcopied(command), tone: isBoxBusy ? 'info' : 'ok' })
+    }
+  } catch (error) {
+    trace.pbcopy = { error: why(error) }
+  }
+
+  try {
+    const copied = await $.ui.copy({ text: command, surface })
+    trace.copy = copied
+    if (copied.isCopied) return done({ text: t.copied(command), tone: 'ok' })
+  } catch (error) {
+    trace.copy = { error: why(error) }
+  }
+
+  await done({ text: t.typeIt, tone: 'warn', code: command })
+}
+
+/**
+ * Runs a skill as if the person typed `/name args` and pressed Enter: no copy
+ * and paste. Reached only through the run form, so a click never starts one.
+ */
+async function runSkill($: EngineInterface, name: string, given: string): Promise<void> {
+  await recordUse($, name)
+  await rememberArgs($, name, given)
+  const t = await strings($)
+  const command = `/${name}${given.trim() ? ` ${given.trim()}` : ''}`
+  try {
+    await $.command.run({ command: name, args: given.trim() })
+    await go($, 'find', { query: '', runArgs: '' })
+    await say($, { text: `${t.started(command)} ${t.startedHelp}`, tone: 'ok' })
+  } catch (error) {
+    await say($, { text: t.runFailed(command, why(error)), tone: 'error', code: command })
+  }
+}
+
+async function addGroup($: EngineInterface, raw: string): Promise<void> {
+  const name = cleanName(raw)
+  if (!name || name === UNGROUPED) return
+  await saveGroups($, g => (g.names.includes(name) ? g : { ...g, names: [...g.names, name] }))
+  await setView($, { newName: '', groupOpen: name })
+}
+
+async function renameGroup($: EngineInterface, from: string, raw: string): Promise<void> {
+  const to = cleanName(raw)
+  if (!to || to === from || to === UNGROUPED) {
+    await setView($, { isRenaming: false, renameTo: '' })
+    return
+  }
+  await saveGroups($, g => {
+    if (g.names.includes(to)) return g
+    const of: Record<string, string> = {}
+    for (const [skill, group] of Object.entries(g.of)) of[skill] = group === from ? to : group
+    return { names: g.names.map(n => (n === from ? to : n)), of }
+  })
+  await setView($, { groupOpen: to, isRenaming: false, renameTo: '' })
+}
+
+async function deleteGroup($: EngineInterface, name: string): Promise<void> {
+  await saveGroups($, g => {
+    const of: Record<string, string> = {}
+    for (const [skill, group] of Object.entries(g.of)) if (group !== name) of[skill] = group
+    return { names: g.names.filter(n => n !== name), of }
+  })
+  await setView($, { groupOpen: '', isRenaming: false })
+}
+
+async function moveGroup($: EngineInterface, name: string, by: -1 | 1): Promise<void> {
+  await saveGroups($, g => {
+    const at = g.names.indexOf(name)
+    const to = at + by
+    if (at < 0 || to < 0 || to >= g.names.length) return g
+    const names = [...g.names]
+    names[at] = names[to] as string
+    names[to] = name
+    return { ...g, names }
+  })
+}
+
+async function assign($: EngineInterface, skill: string, group: string): Promise<void> {
+  await saveGroups($, g => {
+    const of = { ...g.of }
+    if (group === UNGROUPED) delete of[skill]
+    else of[skill] = group
+    return { ...g, of }
+  })
+}
+
+async function setHidden($: EngineInterface, name: string, isHidden: boolean): Promise<void> {
+  await savePrefs($, p => ({
+    ...p,
+    hidden: isHidden ? [...p.hidden.filter(h => h !== name), name] : p.hidden.filter(h => h !== name),
+  }))
+}
+
+// ── Drawing helpers ──────────────────────────────────────────────────────
 
 /** The band's chips: this place's most used, else the overall most used, still listed. */
 export function chipNames(all: SkillRow[], u: Usage, here: string): { names: string[]; isLocal: boolean } {
